@@ -427,23 +427,7 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	friends := GetFriendList(user.ID)
-
-	rows, err = db.Query(`SELECT user_id, owner_id, DATE(created_at) AS date, MAX(created_at) AS updated
-FROM footprints
-WHERE user_id = ?
-GROUP BY user_id, owner_id, DATE(created_at)
-ORDER BY updated DESC
-LIMIT 10`, user.ID)
-	if err != sql.ErrNoRows {
-		checkErr(err)
-	}
-	footprints := make([]Footprint, 0, 10)
-	for rows.Next() {
-		fp := Footprint{}
-		checkErr(rows.Scan(&fp.UserID, &fp.OwnerID, &fp.CreatedAt, &fp.Updated))
-		footprints = append(footprints, fp)
-	}
-	rows.Close()
+	footprints := getFootprints(user.ID, 10)
 
 	render(w, r, http.StatusOK, "index.html", struct {
 		User              User
@@ -741,7 +725,7 @@ func initialize() {
 		checkErr(err)
 	}
 
-	users = map[int]User{};
+	users = map[int]User{}
 	for rows.Next() {
 		user := User{}
 		checkErr(rows.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string)))
