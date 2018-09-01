@@ -333,14 +333,22 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	// TODO: 上記エントリ情報を使ってコメントを取得
-	//　各エントリのコメント10件
-	rows, err = db.Query(`SELECT c.id AS id, c.entry_id AS entry_id, c.user_id AS user_id, c.comment AS comment, c.created_at AS created_at
-FROM comments c
-JOIN entries e ON c.entry_id = e.id
-WHERE e.user_id = ?
-ORDER BY c.created_at DESC
-LIMIT 10`, user.ID)
+	// entriesのidをすべて取得する
+
+	var entryIds = []interface{}{}
+	rows, err = db.Query(`SELECT id FROM entries where user_id = ?`, user.ID)
+	if err != sql.ErrNoRows {
+		checkErr(err)
+	}
+	for rows.Next()  {
+		var entryId int
+		checkErr(rows.Scan(&entryId))
+		entryIds = append(entryIds, strconv.Itoa(entryId))
+	}
+	rows.Close()
+
+	commentQuery := "SELECT id, entry_id, user_id, comment, created_at from comments where entry_id in ( ?" + strings.Repeat(",?", len(entryIds)-1) + ") order by created_at desc LIMIT 10"
+	rows, err = db.Query(commentQuery, entryIds...)
 	if err != sql.ErrNoRows {
 		checkErr(err)
 	}
@@ -352,9 +360,14 @@ LIMIT 10`, user.ID)
 	}
 	rows.Close()
 
-	// TODO: フレンドリストを取得し、INでエントリ取得
-	// フレンドのエントリを10件まで取得
-	rows, err = db.Query(`SELECT * FROM entries ORDER BY created_at DESC LIMIT 1000`)
+	friendList := GetFriendList(user.ID, false)
+	var friendIds = []interface{}{}
+	for _, f := range friendList {
+		friendIds = append(friendIds, f.ID)
+	}
+
+	entryQuery := "SELECT * FROM entries where user_id in (?" + strings.Repeat(",?", len(friendList) - 1) + ") order by created_at DESC LIMIT 10"
+	rows, err = db.Query(entryQuery, friendIds...)
 	if err != sql.ErrNoRows {
 		checkErr(err)
 	}
@@ -364,9 +377,6 @@ LIMIT 10`, user.ID)
 		var body string
 		var createdAt time.Time
 		checkErr(rows.Scan(&id, &userID, &private, &body, &createdAt))
-		if !isFriend(w, r, userID) {
-			continue
-		}
 		entriesOfFriends = append(entriesOfFriends, Entry{id, userID, private == 1, strings.SplitN(body, "\n", 2)[0], strings.SplitN(body, "\n", 2)[1], createdAt})
 		if len(entriesOfFriends) >= 10 {
 			break
@@ -374,33 +384,17 @@ LIMIT 10`, user.ID)
 	}
 	rows.Close()
 
-	// TODO: 先に上記エントリを取得しINでコメント取得
-	rows, err = db.Query(`SELECT * FROM comments ORDER BY created_at DESC LIMIT 1000`)
+	friendCommentQuery:= "select c.* from comments c JOIN entries e ON e.id = c.entry_id where c.user_id  IN (?" + strings.Repeat(",?", len(friendList) - 1) + ") and not (e.private = 1 and e.user_id not IN (?" + strings.Repeat(",?", len(friendList) - 1) + ")) order by c.created_at desc limit 10;"
+	rows, err = db.Query(friendCommentQuery, append(friendIds, friendIds...)...)
 	if err != sql.ErrNoRows {
 		checkErr(err)
 	}
+
 	commentsOfFriends := make([]Comment, 0, 10)
 	for rows.Next() {
 		c := Comment{}
 		checkErr(rows.Scan(&c.ID, &c.EntryID, &c.UserID, &c.Comment, &c.CreatedAt))
-		if !isFriend(w, r, c.UserID) {
-			continue
-		}
-		row := db.QueryRow(`SELECT * FROM entries WHERE id = ?`, c.EntryID)
-		var id, userID, private int
-		var body string
-		var createdAt time.Time
-		checkErr(row.Scan(&id, &userID, &private, &body, &createdAt))
-		entry := Entry{id, userID, private == 1, strings.SplitN(body, "\n", 2)[0], strings.SplitN(body, "\n", 2)[1], createdAt}
-		if entry.Private {
-			if !permitted(w, r, entry.UserID) {
-				continue
-			}
-		}
 		commentsOfFriends = append(commentsOfFriends, c)
-		if len(commentsOfFriends) >= 10 {
-			break
-		}
 	}
 	rows.Close()
 
@@ -701,7 +695,6 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 	friends := make([]Friend, 0, len(friendsMap))
 
 	if friendInfo {
-
 		query := "SELECT * FROM users WHERE id IN (?" + strings.Repeat(",?", len(friendIDs)-1) + ")"
 		rows, err = db.Query(query, friendIDs...)
 
@@ -847,7 +840,6 @@ func main() {
 	r.HandleFunc("/initialize", myHandler(GetInitialize))
 	r.HandleFunc("/", myHandler(GetIndex))
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("../static")))
-
 
 	log.Fatal(http.ListenAndServe(":8080", r))
 }
