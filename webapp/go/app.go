@@ -340,7 +340,7 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	if err != sql.ErrNoRows {
 		checkErr(err)
 	}
-	for rows.Next()  {
+	for rows.Next() {
 		var entryId int
 		checkErr(rows.Scan(&entryId))
 		entryIds = append(entryIds, strconv.Itoa(entryId))
@@ -360,13 +360,13 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	friendList := GetFriendList(user.ID, false)
+	friendList := GetFriendList(user.ID)
 	var friendIds = []interface{}{}
 	for _, f := range friendList {
 		friendIds = append(friendIds, f.ID)
 	}
 
-	entryQuery := "SELECT * FROM entries where user_id in (?" + strings.Repeat(",?", len(friendList) - 1) + ") order by created_at DESC LIMIT 10"
+	entryQuery := "SELECT * FROM entries where user_id in (?" + strings.Repeat(",?", len(friendList)-1) + ") order by created_at DESC LIMIT 10"
 	rows, err = db.Query(entryQuery, friendIds...)
 	if err != sql.ErrNoRows {
 		checkErr(err)
@@ -384,7 +384,7 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	friendCommentQuery:= "select c.* from comments c JOIN entries e ON e.id = c.entry_id where c.user_id  IN (?" + strings.Repeat(",?", len(friendList) - 1) + ") and not (e.private = 1 and e.user_id not IN (?" + strings.Repeat(",?", len(friendList) - 1) + ")) order by c.created_at desc limit 10;"
+	friendCommentQuery := "select c.* from comments c JOIN entries e ON e.id = c.entry_id where c.user_id  IN (?" + strings.Repeat(",?", len(friendList)-1) + ") and not (e.private = 1 and e.user_id not IN (?" + strings.Repeat(",?", len(friendList)-1) + ")) order by c.created_at desc limit 10;"
 	rows, err = db.Query(friendCommentQuery, append(friendIds, friendIds...)...)
 	if err != sql.ErrNoRows {
 		checkErr(err)
@@ -405,7 +405,7 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 		checkErr(err)
 	}
 
-	friends := GetFriendList(user.ID, false)
+	friends := GetFriendList(user.ID)
 
 	rows, err = db.Query(`SELECT user_id, owner_id, DATE(created_at) AS date, MAX(created_at) AS updated
 FROM footprints
@@ -664,13 +664,12 @@ LIMIT 50`, user.ID)
 	render(w, r, http.StatusOK, "footprints.html", struct{ Footprints []Footprint }{footprints})
 }
 
-func GetFriendList(userID int, friendInfo bool) []Friend {
+func GetFriendList(userID int) []Friend {
 	rows, err := db.Query(`SELECT * FROM relations WHERE one = ? OR another = ? ORDER BY created_at DESC`, userID, userID)
 	if err != sql.ErrNoRows {
 		checkErr(err)
 	}
 
-	friendIDs := []interface{}{}
 	friendsMap := make(map[int]time.Time)
 	for rows.Next() {
 		var id, one, another int
@@ -683,8 +682,6 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 			friendID = one
 		}
 
-		friendIDs = append(friendIDs, friendID)
-
 		if _, ok := friendsMap[friendID]; !ok {
 			friendsMap[friendID] = createdAt
 		}
@@ -694,26 +691,8 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 	rows.Close()
 	friends := make([]Friend, 0, len(friendsMap))
 
-	if friendInfo {
-		query := "SELECT * FROM users WHERE id IN (?" + strings.Repeat(",?", len(friendIDs)-1) + ")"
-		rows, err = db.Query(query, friendIDs...)
-
-		if err != sql.ErrNoRows {
-			checkErr(err)
-		}
-
-		for rows.Next() {
-			user := User{}
-			checkErr(rows.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string)))
-			friends = append(friends, Friend{ID: user.ID, CreatedAt: friendsMap[user.ID], User: user})
-		}
-		rows.Close()
-
-	} else {
-		for key, val := range friendsMap {
-			friends = append(friends, Friend{ID: key, CreatedAt: val})
-		}
-
+	for key, val := range friendsMap {
+		friends = append(friends, Friend{ID: key, CreatedAt: val})
 	}
 
 	return friends
@@ -725,7 +704,7 @@ func GetFriends(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := getCurrentUser(w, r)
-	friends := GetFriendList(user.ID, false)
+	friends := GetFriendList(user.ID)
 	render(w, r, http.StatusOK, "friends.html", struct{ Friends []Friend }{friends})
 }
 
@@ -743,7 +722,6 @@ func PostFriends(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/friends", http.StatusSeeOther)
 	}
 }
-
 
 func initialize() {
 	db.Exec("DELETE FROM relations WHERE id > 500000")
@@ -763,6 +741,7 @@ func initialize() {
 		checkErr(rows.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string)))
 		users[user.ID] = user
 	}
+	rows.Close()
 }
 
 func GetInitialize(w http.ResponseWriter, r *http.Request) {
