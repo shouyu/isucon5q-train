@@ -3,10 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
-	"github.com/go-sql-driver/mysql"
-	"github.com/gorilla/context"
-	"github.com/gorilla/mux"
-	"github.com/gorilla/sessions"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -16,11 +13,18 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-redis/redis"
+	"github.com/go-sql-driver/mysql"
+	"github.com/gorilla/context"
+	"github.com/gorilla/mux"
+	"github.com/gorilla/sessions"
 )
 
 var (
 	db    *sql.DB
 	store *sessions.CookieStore
+	rc    *redis.Client
 )
 
 type User struct {
@@ -180,8 +184,10 @@ func permitted(w http.ResponseWriter, r *http.Request, anotherID int) bool {
 
 func markFootprint(w http.ResponseWriter, r *http.Request, id int) {
 	user := getCurrentUser(w, r)
+
 	if user.ID != id {
-		_, err := db.Exec(`INSERT INTO footprints (user_id,owner_id) VALUES (?,?)`, id, user.ID)
+		fps := createFootprintString(user.ID)
+		err := rc.LPush(fmt.Sprintf("footprint_%d", id), fps).Err()
 		checkErr(err)
 	}
 }
@@ -647,23 +653,47 @@ func GetFootprints(w http.ResponseWriter, r *http.Request) {
 
 	user := getCurrentUser(w, r)
 	footprints := make([]Footprint, 0, 50)
-	rows, err := db.Query(`SELECT user_id, owner_id, DATE(created_at) AS date, MAX(created_at) as updated
-FROM footprints
-WHERE user_id = ?
-GROUP BY user_id, owner_id, DATE(created_at)
-ORDER BY updated DESC
-LIMIT 50`, user.ID)
-	if err != sql.ErrNoRows {
-		checkErr(err)
-	}
-	for rows.Next() {
-		fp := Footprint{}
-		checkErr(rows.Scan(&fp.UserID, &fp.OwnerID, &fp.CreatedAt, &fp.Updated))
+	vals := getFootprintList(user.ID, 50)
+
+	for _, val := range vals {
+		fp := parseFootprint(user.ID, val)
 		footprints = append(footprints, fp)
 	}
-	rows.Close()
+
 	render(w, r, http.StatusOK, "footprints.html", struct{ Footprints []Footprint }{footprints})
 }
+
+func createFootprintString(ownerID int) string {
+	return fmt.Sprintf(
+		"%d%%%s%%%s",
+		ownerID,
+		time.Now().Format("2017-04-30 23:36:00"),
+		time.Now().Format("2017-04-30 23:36:00"),
+	)
+}
+
+func parseFootprint(userID int, val string) Footprint {
+	sp := strings.Split(val, "%")
+	ownerID, _ := strconv.Atoi(sp[0])
+	createdAt, _ := time.Parse(sp[1], "2017-04-30 23:36:00")
+	updated, _ := time.Parse(sp[2], "2017-04-30 23:36:00")
+	fp := Footprint{
+		UserID:    userID,
+		OwnerID:   ownerID,
+		CreatedAt: createdAt,
+		Updated:   updated,
+	}
+	return fp
+}
+
+func getFootprintList(userID int, count int) []string {
+	vals, err := rc.LRange(fmt.Sprintf("footprint_%d", userID), int64(0), int64(count-1)).Result()
+	if err != nil {
+		return nil
+	}
+	return vals
+}
+
 func GetFriends(w http.ResponseWriter, r *http.Request) {
 	if !authenticated(w, r) {
 		return
@@ -760,6 +790,13 @@ func main() {
 		log.Fatalf("Failed to connect to DB: %s.", err.Error())
 	}
 	defer db.Close()
+
+	rc := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+	})
+	defer rc.Close()
 
 	store = sessions.NewCookieStore([]byte(ssecret))
 	r := mux.NewRouter()
