@@ -136,7 +136,7 @@ func authenticated(w http.ResponseWriter, r *http.Request) bool {
 func getUser(w http.ResponseWriter, userID int) *User {
 	user, ok := users[userID]
 	if !ok {
-		//log.Println("misshit")
+		log.Println("miss hit ", userID)
 		row := db.QueryRow(`SELECT * FROM users WHERE id = ?`, userID)
 		user := User{}
 		err := row.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string))
@@ -831,6 +831,7 @@ func main() {
 
 func checkErr(err error) {
 	if err != nil {
+		log.Println(err)
 		panic(err)
 	}
 }
