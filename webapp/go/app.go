@@ -425,6 +425,7 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	if err != sql.ErrNoRows {
 		checkErr(err)
 	}
+	rows.Close()
 
 	friends := GetFriendList(user.ID)
 	footprints := getFootprints(user.ID, 10)
