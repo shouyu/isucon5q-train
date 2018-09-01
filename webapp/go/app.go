@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"fmt"
 )
 
 var (
@@ -362,7 +361,6 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entryQuery := "SELECT * FROM entries where user_id in (?" + strings.Repeat(",?", len(friendList) - 1) + ") order by created_at DESC LIMIT 10"
-	fmt.Println(entryQuery)
 	rows, err = db.Query(entryQuery, friendIds...)
 	if err != sql.ErrNoRows {
 		checkErr(err)
@@ -387,12 +385,10 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	commentsOfFriends := make([]Comment, 0, 10)
-	fmt.Println("commentsOfFriends_", )
 	for rows.Next() {
 		c := Comment{}
 		checkErr(rows.Scan(&c.ID, &c.EntryID, &c.UserID, &c.Comment, &c.CreatedAt))
 		commentsOfFriends = append(commentsOfFriends, c)
-		fmt.Println(c.ID)
 	}
 	rows.Close()
 
@@ -712,8 +708,6 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 	friends := make([]Friend, 0, len(friendsMap))
 
 	if friendInfo {
-
-		//fmt.Println("お友達: ", len(friendIDs))
 		query := "SELECT * FROM users WHERE id IN (?" + strings.Repeat(",?", len(friendIDs)-1) + ")"
 		rows, err = db.Query(query, friendIDs...)
 
@@ -724,10 +718,8 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 		for rows.Next() {
 			user := User{}
 			checkErr(rows.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string)))
-			//fmt.Println(user.ID)
 			friends = append(friends, Friend{ID: user.ID, CreatedAt: friendsMap[user.ID], User: user})
 		}
-		//fmt.Println("お友達数", len(friends))
 		rows.Close()
 
 	} else {
