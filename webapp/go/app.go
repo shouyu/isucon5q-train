@@ -689,7 +689,7 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 		checkErr(err)
 	}
 
-	friendIDs := []string{}
+	friendIDs := []interface{}{}
 	friendsMap := make(map[int]time.Time)
 	for rows.Next() {
 		var id, one, another int
@@ -702,7 +702,7 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 			friendID = one
 		}
 
-		friendIDs = append(friendIDs, strconv.Itoa(friendID))
+		friendIDs = append(friendIDs, friendID)
 
 		if _, ok := friendsMap[friendID]; !ok {
 			friendsMap[friendID] = createdAt
@@ -714,8 +714,11 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 	friends := make([]Friend, 0, len(friendsMap))
 
 	if friendInfo {
-		friendIDsList := strings.Join(friendIDs, ",")
-		rows, err := db.Query(`SELECT * FROM users WHERE id in (?)`, friendIDsList)
+
+		//fmt.Println("お友達: ", len(friendIDs))
+		query := "SELECT * FROM users WHERE id IN (?" + strings.Repeat(",?", len(friendIDs)-1) + ")"
+		rows, err = db.Query(query, friendIDs...)
+
 		if err != sql.ErrNoRows {
 			checkErr(err)
 		}
@@ -723,8 +726,12 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 		for rows.Next() {
 			user := User{}
 			checkErr(rows.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string)))
+			//fmt.Println(user.ID)
 			friends = append(friends, Friend{ID: user.ID, CreatedAt: friendsMap[user.ID], User: user})
 		}
+		//fmt.Println("お友達数", len(friends))
+		rows.Close()
+
 	} else {
 		for key, val := range friendsMap {
 			friends = append(friends, Friend{ID: key, CreatedAt: val})
@@ -838,7 +845,7 @@ func main() {
 	r.HandleFunc("/initialize", myHandler(GetInitialize))
 	r.HandleFunc("/", myHandler(GetIndex))
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("../static")))
-	log.Fatal(http.ListenAndServe(":8080", r))
+	log.Fatal(http.ListenAndServe(":8082", r))
 }
 
 func checkErr(err error) {
