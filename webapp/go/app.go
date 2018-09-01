@@ -155,6 +155,11 @@ func getUserFromAccount(w http.ResponseWriter, name string) *User {
 func isFriend(w http.ResponseWriter, r *http.Request, anotherID int) bool {
 	session := getSession(w, r)
 	id := session.Values["user_id"]
+
+
+	// フォロー/フォロワー数
+	// one->another relationship の indexあり
+
 	row := db.QueryRow(`SELECT COUNT(1) AS cnt FROM relations WHERE (one = ? AND another = ?) OR (one = ? AND another = ?)`, id, anotherID, anotherID, id)
 	cnt := new(int)
 	err := row.Scan(cnt)
@@ -298,16 +303,21 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	user := getCurrentUser(w, r)
 
 	prof := Profile{}
+
+	// ユーザ取得
 	row := db.QueryRow(`SELECT * FROM profiles WHERE user_id = ?`, user.ID)
 	err := row.Scan(&prof.UserID, &prof.FirstName, &prof.LastName, &prof.Sex, &prof.Birthday, &prof.Pref, &prof.UpdatedAt)
 	if err != sql.ErrNoRows {
 		checkErr(err)
 	}
 
+	//　最新のエントリ5件
 	rows, err := db.Query(`SELECT * FROM entries WHERE user_id = ? ORDER BY created_at LIMIT 5`, user.ID)
 	if err != sql.ErrNoRows {
 		checkErr(err)
 	}
+
+
 	entries := make([]Entry, 0, 5)
 	for rows.Next() {
 		var id, userID, private int
@@ -318,6 +328,8 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
+	// TODO: 上記エントリ情報を使ってコメントを取得
+	//　各エントリのコメント10件
 	rows, err = db.Query(`SELECT c.id AS id, c.entry_id AS entry_id, c.user_id AS user_id, c.comment AS comment, c.created_at AS created_at
 FROM comments c
 JOIN entries e ON c.entry_id = e.id
@@ -335,6 +347,8 @@ LIMIT 10`, user.ID)
 	}
 	rows.Close()
 
+	// TODO: フレンドリストを取得し、INでエントリ取得
+	// フレンドのエントリを10件まで取得
 	rows, err = db.Query(`SELECT * FROM entries ORDER BY created_at DESC LIMIT 1000`)
 	if err != sql.ErrNoRows {
 		checkErr(err)
@@ -355,6 +369,7 @@ LIMIT 10`, user.ID)
 	}
 	rows.Close()
 
+	// TODO: 先に上記エントリを取得しINでコメント取得
 	rows, err = db.Query(`SELECT * FROM comments ORDER BY created_at DESC LIMIT 1000`)
 	if err != sql.ErrNoRows {
 		checkErr(err)
@@ -384,10 +399,13 @@ LIMIT 10`, user.ID)
 	}
 	rows.Close()
 
+	// 友達関係を洗出し
+	// 双方向の関係性はいるの？
 	rows, err = db.Query(`SELECT * FROM relations WHERE one = ? OR another = ? ORDER BY created_at DESC`, user.ID, user.ID)
 	if err != sql.ErrNoRows {
 		checkErr(err)
 	}
+
 	friendsMap := make(map[int]time.Time)
 	for rows.Next() {
 		var id, one, another int
@@ -408,6 +426,7 @@ LIMIT 10`, user.ID)
 		friends = append(friends, Friend{key, val})
 	}
 	rows.Close()
+
 
 	rows, err = db.Query(`SELECT user_id, owner_id, DATE(created_at) AS date, MAX(created_at) AS updated
 FROM footprints
@@ -641,6 +660,7 @@ func PostComment(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetFootprints(w http.ResponseWriter, r *http.Request) {
+	// TODO: 重い, 修正
 	if !authenticated(w, r) {
 		return
 	}
@@ -665,6 +685,7 @@ LIMIT 50`, user.ID)
 	render(w, r, http.StatusOK, "footprints.html", struct{ Footprints []Footprint }{footprints})
 }
 func GetFriends(w http.ResponseWriter, r *http.Request) {
+	// TODO: 重い.修正
 	if !authenticated(w, r) {
 		return
 	}
@@ -789,7 +810,7 @@ func main() {
 	r.HandleFunc("/initialize", myHandler(GetInitialize))
 	r.HandleFunc("/", myHandler(GetIndex))
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("../static")))
-	log.Fatal(http.ListenAndServe(":8080", r))
+	log.Fatal(http.ListenAndServe(":8082", r))
 }
 
 func checkErr(err error) {
