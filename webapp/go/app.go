@@ -21,6 +21,7 @@ import (
 var (
 	db    *sql.DB
 	store *sessions.CookieStore
+	users map[int]User
 )
 
 type User struct {
@@ -132,13 +133,18 @@ func authenticated(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func getUser(w http.ResponseWriter, userID int) *User {
-	row := db.QueryRow(`SELECT * FROM users WHERE id = ?`, userID)
-	user := User{}
-	err := row.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string))
-	if err == sql.ErrNoRows {
-		checkErr(ErrContentNotFound)
+	user, ok := users[userID]
+	if !ok {
+		//log.Println("misshit")
+		row := db.QueryRow(`SELECT * FROM users WHERE id = ?`, userID)
+		user := User{}
+		err := row.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string))
+
+		if err == sql.ErrNoRows {
+			checkErr(ErrContentNotFound)
+		}
+		checkErr(err)
 	}
-	checkErr(err)
 	return &user
 }
 
@@ -405,26 +411,7 @@ LIMIT 10`, user.ID)
 		checkErr(err)
 	}
 
-	friendsMap := make(map[int]time.Time)
-	for rows.Next() {
-		var id, one, another int
-		var createdAt time.Time
-		checkErr(rows.Scan(&id, &one, &another, &createdAt))
-		var friendID int
-		if one == user.ID {
-			friendID = another
-		} else {
-			friendID = one
-		}
-		if _, ok := friendsMap[friendID]; !ok {
-			friendsMap[friendID] = createdAt
-		}
-	}
-	friends := make([]Friend, 0, len(friendsMap))
-	for key, val := range friendsMap {
-		friends = append(friends, Friend{ID: key, CreatedAt: val})
-	}
-	rows.Close()
+	friends := GetFriendList(user.ID, false)
 
 	rows, err = db.Query(`SELECT user_id, owner_id, DATE(created_at) AS date, MAX(created_at) AS updated
 FROM footprints
@@ -715,7 +702,6 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 
 	if friendInfo {
 
-		//fmt.Println("お友達: ", len(friendIDs))
 		query := "SELECT * FROM users WHERE id IN (?" + strings.Repeat(",?", len(friendIDs)-1) + ")"
 		rows, err = db.Query(query, friendIDs...)
 
@@ -726,10 +712,8 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 		for rows.Next() {
 			user := User{}
 			checkErr(rows.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string)))
-			//fmt.Println(user.ID)
 			friends = append(friends, Friend{ID: user.ID, CreatedAt: friendsMap[user.ID], User: user})
 		}
-		//fmt.Println("お友達数", len(friends))
 		rows.Close()
 
 	} else {
@@ -743,13 +727,12 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 }
 
 func GetFriends(w http.ResponseWriter, r *http.Request) {
-	// TODO: 重い.修正
 	if !authenticated(w, r) {
 		return
 	}
 
 	user := getCurrentUser(w, r)
-	friends := GetFriendList(user.ID, true)
+	friends := GetFriendList(user.ID, false)
 	render(w, r, http.StatusOK, "friends.html", struct{ Friends []Friend }{friends})
 }
 
@@ -768,11 +751,29 @@ func PostFriends(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetInitialize(w http.ResponseWriter, r *http.Request) {
+
+func initialize() {
 	db.Exec("DELETE FROM relations WHERE id > 500000")
 	db.Exec("DELETE FROM footprints WHERE id > 500000")
 	db.Exec("DELETE FROM entries WHERE id > 500000")
 	db.Exec("DELETE FROM comments WHERE id > 1500000")
+
+	rows, err := db.Query(`SELECT * FROM users;`)
+
+	if err != sql.ErrNoRows {
+		checkErr(err)
+	}
+
+	users = map[int]User{};
+	for rows.Next() {
+		user := User{}
+		checkErr(rows.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string)))
+		users[user.ID] = user
+	}
+}
+
+func GetInitialize(w http.ResponseWriter, r *http.Request) {
+	initialize()
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
@@ -816,6 +817,7 @@ func main() {
 		log.Fatalf("Failed to connect to DB: %s.", err.Error())
 	}
 	defer db.Close()
+	initialize()
 
 	store = sessions.NewCookieStore([]byte(ssecret))
 	r := mux.NewRouter()
@@ -845,6 +847,8 @@ func main() {
 	r.HandleFunc("/initialize", myHandler(GetInitialize))
 	r.HandleFunc("/", myHandler(GetIndex))
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("../static")))
+
+
 	log.Fatal(http.ListenAndServe(":8080", r))
 }
 
