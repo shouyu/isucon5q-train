@@ -333,14 +333,22 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 
-	// TODO: 上記エントリ情報を使ってコメントを取得
-	//　各エントリのコメント10件
-	rows, err = db.Query(`SELECT c.id AS id, c.entry_id AS entry_id, c.user_id AS user_id, c.comment AS comment, c.created_at AS created_at
-FROM comments c
-JOIN entries e ON c.entry_id = e.id
-WHERE e.user_id = ?
-ORDER BY c.created_at DESC
-LIMIT 10`, user.ID)
+	// entriesのidをすべて取得する
+
+	var entryIds = []interface{}{}
+	rows, err = db.Query(`SELECT id FROM entries where user_id = ?`, user.ID)
+	if err != sql.ErrNoRows {
+		checkErr(err)
+	}
+	for rows.Next()  {
+		var entryId int
+		checkErr(rows.Scan(&entryId))
+		entryIds = append(entryIds, strconv.Itoa(entryId))
+	}
+	rows.Close()
+
+	commentQuery := "SELECT id, entry_id, user_id, comment, created_at from comments where entry_id in ( ?" + strings.Repeat(",?", len(entryIds)-1) + ") order by created_at desc LIMIT 10"
+	rows, err = db.Query(commentQuery, entryIds...)
 	if err != sql.ErrNoRows {
 		checkErr(err)
 	}
