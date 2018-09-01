@@ -810,7 +810,7 @@ func main() {
 	r.HandleFunc("/initialize", myHandler(GetInitialize))
 	r.HandleFunc("/", myHandler(GetIndex))
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir("../static")))
-	log.Fatal(http.ListenAndServe(":8082", r))
+	log.Fatal(http.ListenAndServe(":8080", r))
 }
 
 func checkErr(err error) {
