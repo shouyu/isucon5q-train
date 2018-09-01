@@ -536,7 +536,11 @@ func ListEntries(w http.ResponseWriter, r *http.Request) {
 		var body string
 		var createdAt time.Time
 		checkErr(rows.Scan(&id, &userID, &private, &body, &createdAt))
-		entry := Entry{id, userID, private == 1, strings.SplitN(body, "\n", 2)[0], strings.SplitN(body, "\n", 2)[1], createdAt}
+		c := strings.SplitN(body, "\n", 2)
+		contents := strings.Replace(c[1], "\n", "<br />", -1)
+		entry := Entry{id, userID, private == 1,
+		c[0],
+		contents, createdAt}
 		entries = append(entries, entry)
 	}
 	rows.Close()
