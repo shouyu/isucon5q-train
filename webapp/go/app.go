@@ -3,10 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
-	"github.com/go-sql-driver/mysql"
-	"github.com/gorilla/context"
-	"github.com/gorilla/mux"
-	"github.com/gorilla/sessions"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -16,6 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
+	"github.com/gorilla/context"
+	"github.com/gorilla/mux"
+	"github.com/gorilla/sessions"
 )
 
 var (
@@ -291,9 +293,9 @@ func render(w http.ResponseWriter, r *http.Request, status int, file string, dat
 		"getEntry": func(id int) Entry {
 			row := db.QueryRow(`SELECT * FROM entries WHERE id=?`, id)
 			var entryID, userID, private int
-			var body string
+			var title, body string
 			var createdAt time.Time
-			checkErr(row.Scan(&entryID, &userID, &private, &body, &createdAt))
+			checkErr(row.Scan(&entryID, &userID, &private, &title, &body, &createdAt))
 			return Entry{id, userID, private == 1, strings.SplitN(body, "\n", 2)[0], strings.SplitN(body, "\n", 2)[1], createdAt}
 		},
 		"numComments": func(id int) int {
@@ -352,9 +354,9 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	entries := make([]Entry, 0, 5)
 	for rows.Next() {
 		var id, userID, private int
-		var body string
+		var title, body string
 		var createdAt time.Time
-		checkErr(rows.Scan(&id, &userID, &private, &body, &createdAt))
+		checkErr(rows.Scan(&id, &userID, &private, &title, &body, &createdAt))
 		entries = append(entries, Entry{id, userID, private == 1, strings.SplitN(body, "\n", 2)[0], strings.SplitN(body, "\n", 2)[1], createdAt})
 	}
 	rows.Close()
@@ -400,9 +402,9 @@ func GetIndex(w http.ResponseWriter, r *http.Request) {
 	entriesOfFriends := make([]Entry, 0, 10)
 	for rows.Next() {
 		var id, userID, private int
-		var body string
+		var title, body string
 		var createdAt time.Time
-		checkErr(rows.Scan(&id, &userID, &private, &body, &createdAt))
+		checkErr(rows.Scan(&id, &userID, &private, &title, &body, &createdAt))
 		entriesOfFriends = append(entriesOfFriends, Entry{id, userID, private == 1, strings.SplitN(body, "\n", 2)[0], strings.SplitN(body, "\n", 2)[1], createdAt})
 		if len(entriesOfFriends) >= 10 {
 			break
@@ -475,9 +477,9 @@ func GetProfile(w http.ResponseWriter, r *http.Request) {
 	entries := make([]Entry, 0, 5)
 	for rows.Next() {
 		var id, userID, private int
-		var body string
+		var title, body string
 		var createdAt time.Time
-		checkErr(rows.Scan(&id, &userID, &private, &body, &createdAt))
+		checkErr(rows.Scan(&id, &userID, &private, &title, &body, &createdAt))
 		entry := Entry{id, userID, private == 1, strings.SplitN(body, "\n", 2)[0], strings.SplitN(body, "\n", 2)[1], createdAt}
 		entries = append(entries, entry)
 	}
@@ -538,9 +540,9 @@ func ListEntries(w http.ResponseWriter, r *http.Request) {
 	entries := make([]Entry, 0, 20)
 	for rows.Next() {
 		var id, userID, private int
-		var body string
+		var title, body string
 		var createdAt time.Time
-		checkErr(rows.Scan(&id, &userID, &private, &body, &createdAt))
+		checkErr(rows.Scan(&id, &userID, &private, &title, &body, &createdAt))
 		c := strings.SplitN(body, "\n", 2)
 		contents := strings.Replace(c[1], "\n", "<br />", -1)
 		entry := Entry{id, userID, private == 1,
@@ -566,9 +568,9 @@ func GetEntry(w http.ResponseWriter, r *http.Request) {
 	entryID := mux.Vars(r)["entry_id"]
 	row := db.QueryRow(`SELECT * FROM entries WHERE id = ?`, entryID)
 	var id, userID, private int
-	var body string
+	var title, body string
 	var createdAt time.Time
-	err := row.Scan(&id, &userID, &private, &body, &createdAt)
+	err := row.Scan(&id, &userID, &private, &title, &body, &createdAt)
 	if err == sql.ErrNoRows {
 		checkErr(ErrContentNotFound)
 	}
@@ -631,9 +633,9 @@ func PostComment(w http.ResponseWriter, r *http.Request) {
 	entryID := mux.Vars(r)["entry_id"]
 	row := db.QueryRow(`SELECT * FROM entries WHERE id = ?`, entryID)
 	var id, userID, private int
-	var body string
+	var title, body string
 	var createdAt time.Time
-	err := row.Scan(&id, &userID, &private, &body, &createdAt)
+	err := row.Scan(&id, &userID, &private, &title, &body, &createdAt)
 	if err == sql.ErrNoRows {
 		checkErr(ErrContentNotFound)
 	}
@@ -799,8 +801,18 @@ func main() {
 	if ssecret == "" {
 		ssecret = "beermoris"
 	}
+	dbSock := os.Getenv("ISUCON5_DB_SOCK")
+	cstr := ""
+	if dbSock != "" {
+		cstr = fmt.Sprintf(
+			"%s:%s@unix(%s)/%s?loc=Local&parseTime=true&charset=utf8mb4",
+			user, password, dbSock, dbname,
+		)
+	} else {
+		cstr = user + ":" + password + "@tcp(" + host + ":" + strconv.Itoa(port) + ")/" + dbname + "?loc=Local&parseTime=true"
+	}
 
-	db, err = sql.Open("mysql", user+":"+password+"@tcp("+host+":"+strconv.Itoa(port)+")/"+dbname+"?loc=Local&parseTime=true")
+	db, err = sql.Open("mysql", cstr)
 	if err != nil {
 		log.Fatalf("Failed to connect to DB: %s.", err.Error())
 	}
