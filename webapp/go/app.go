@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -779,8 +780,18 @@ func main() {
 	if ssecret == "" {
 		ssecret = "beermoris"
 	}
+	dbSock := os.Getenv("ISUCON5_DB_SOCK")
+	cstr := ""
+	if dbSock != "" {
+		cstr = fmt.Sprintf(
+			"%s:%s@unix(%s)/%s?loc=Local&parseTime=true&charset=utf8mb4",
+			user, password, dbSock, dbname,
+		)
+	} else {
+		cstr = user + ":" + password + "@tcp(" + host + ":" + strconv.Itoa(port) + ")/" + dbname + "?loc=Local&parseTime=true"
+	}
 
-	db, err = sql.Open("mysql", user+":"+password+"@tcp("+host+":"+strconv.Itoa(port)+")/"+dbname+"?loc=Local&parseTime=true")
+	db, err = sql.Open("mysql", cstr)
 	if err != nil {
 		log.Fatalf("Failed to connect to DB: %s.", err.Error())
 	}
