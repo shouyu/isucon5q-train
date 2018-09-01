@@ -65,6 +65,7 @@ type Friend struct {
 type Footprint struct {
 	UserID    int
 	OwnerID   int
+	Date      time.Time
 	CreatedAt time.Time
 	Updated   time.Time
 }
@@ -181,9 +182,29 @@ func permitted(w http.ResponseWriter, r *http.Request, anotherID int) bool {
 func markFootprint(w http.ResponseWriter, r *http.Request, id int) {
 	user := getCurrentUser(w, r)
 	if user.ID != id {
-		_, err := db.Exec(`INSERT INTO footprints (user_id,owner_id) VALUES (?,?)`, id, user.ID)
+		_, err := db.Exec(`INSERT INTO footprints (user_id,owner_id,date) VALUES (?,?,NOW())`, id, user.ID)
 		checkErr(err)
 	}
+}
+
+func getFootprints(userID int, count int) []Footprint {
+	footprints := make([]Footprint, 0, count)
+	rows, err := db.Query(`SELECT user_id, owner_id, date, MAX(created_at) as updated
+FROM footprints
+WHERE user_id = ?
+GROUP BY user_id, owner_id, date
+ORDER BY updated DESC
+LIMIT ?`, userID, count)
+	if err != sql.ErrNoRows {
+		checkErr(err)
+	}
+	for rows.Next() {
+		fp := Footprint{}
+		checkErr(rows.Scan(&fp.UserID, &fp.OwnerID, &fp.CreatedAt, &fp.Updated))
+		footprints = append(footprints, fp)
+	}
+	rows.Close()
+	return footprints
 }
 
 func myHandler(fn func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
@@ -646,24 +667,10 @@ func GetFootprints(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := getCurrentUser(w, r)
-	footprints := make([]Footprint, 0, 50)
-	rows, err := db.Query(`SELECT user_id, owner_id, DATE(created_at) AS date, MAX(created_at) as updated
-FROM footprints
-WHERE user_id = ?
-GROUP BY user_id, owner_id, DATE(created_at)
-ORDER BY updated DESC
-LIMIT 50`, user.ID)
-	if err != sql.ErrNoRows {
-		checkErr(err)
-	}
-	for rows.Next() {
-		fp := Footprint{}
-		checkErr(rows.Scan(&fp.UserID, &fp.OwnerID, &fp.CreatedAt, &fp.Updated))
-		footprints = append(footprints, fp)
-	}
-	rows.Close()
+	footprints := getFootprints(user.ID, 50)
 	render(w, r, http.StatusOK, "footprints.html", struct{ Footprints []Footprint }{footprints})
 }
+
 func GetFriends(w http.ResponseWriter, r *http.Request) {
 	if !authenticated(w, r) {
 		return
