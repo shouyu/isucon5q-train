@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"fmt"
 )
 
 var (
@@ -136,7 +135,7 @@ func authenticated(w http.ResponseWriter, r *http.Request) bool {
 func getUser(w http.ResponseWriter, userID int) *User {
 	user, ok := users[userID]
 	if !ok {
-		fmt.Println("Misshit")
+		//log.Println("misshit")
 		row := db.QueryRow(`SELECT * FROM users WHERE id = ?`, userID)
 		user := User{}
 		err := row.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string))
@@ -703,7 +702,6 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 
 	if friendInfo {
 
-		//fmt.Println("お友達: ", len(friendIDs))
 		query := "SELECT * FROM users WHERE id IN (?" + strings.Repeat(",?", len(friendIDs)-1) + ")"
 		rows, err = db.Query(query, friendIDs...)
 
@@ -714,10 +712,8 @@ func GetFriendList(userID int, friendInfo bool) []Friend {
 		for rows.Next() {
 			user := User{}
 			checkErr(rows.Scan(&user.ID, &user.AccountName, &user.NickName, &user.Email, new(string)))
-			//fmt.Println(user.ID)
 			friends = append(friends, Friend{ID: user.ID, CreatedAt: friendsMap[user.ID], User: user})
 		}
-		//fmt.Println("お友達数", len(friends))
 		rows.Close()
 
 	} else {
