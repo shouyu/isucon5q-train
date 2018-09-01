@@ -719,6 +719,15 @@ func GetInitialize(w http.ResponseWriter, r *http.Request) {
 	db.Exec("DELETE FROM comments WHERE id > 1500000")
 }
 
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Do stuff here
+		log.Println(r.RequestURI)
+		// Call the next handler, which can be another middleware in the chain, or the final handler.
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	host := os.Getenv("ISUCON5_DB_HOST")
 	if host == "" {
@@ -753,8 +762,8 @@ func main() {
 	defer db.Close()
 
 	store = sessions.NewCookieStore([]byte(ssecret))
-
 	r := mux.NewRouter()
+	r.Use(loggingMiddleware)
 
 	l := r.Path("/login").Subrouter()
 	l.Methods("GET").HandlerFunc(myHandler(GetLogin))
